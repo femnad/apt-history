@@ -39,9 +39,12 @@ impl Default for HistoryEntry {
 struct Args {
     #[arg(short, long)]
     reverse: bool,
+
+    #[arg(default_value = "list")]
+    command: String,
 }
 
-fn history(args: Args) -> io::Result<()> {
+fn list(args: Args) -> io::Result<()> {
     let log = File::open(APT_HISTORY_LOG)?;
     let reader = io::BufReader::new(log);
 
@@ -120,6 +123,13 @@ fn history(args: Args) -> io::Result<()> {
     println!("{}", result);
 
     Ok(())
+}
+
+fn history(args: Args) -> io::Result<()> {
+    match args.command.as_str() {
+        "list" => list(args),
+        _ => panic!("unknown command: `{}`", args.command)
+    }
 }
 
 fn main() {
