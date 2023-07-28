@@ -3,6 +3,7 @@ use std::io;
 use std::io::BufRead;
 use std::ops::Add;
 
+use clap::Parser;
 use stybulate::{Cell, Headers, Style, Table};
 
 const APT_HISTORY_LOG: &str = "/var/log/apt/history.log";
@@ -32,7 +33,15 @@ impl Default for HistoryEntry {
     }
 }
 
-fn history() -> io::Result<()> {
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(short, long)]
+    reverse: bool,
+}
+
+fn history(args: Args) -> io::Result<()> {
     let log = File::open(APT_HISTORY_LOG)?;
     let reader = io::BufReader::new(log);
 
@@ -98,7 +107,11 @@ fn history() -> io::Result<()> {
         }
     }
 
-    rows.reverse();
+    // Default behavior is to list entries in descending order by ID.
+    if !args.reverse {
+        rows.reverse();
+    }
+
     let result = Table::new(
         Style::Presto,
         rows,
@@ -110,7 +123,8 @@ fn history() -> io::Result<()> {
 }
 
 fn main() {
-    if let Err(e) = history() {
+    let args = Args::parse();
+    if let Err(e) = history(args) {
         eprintln!("{}", e);
     }
 }
