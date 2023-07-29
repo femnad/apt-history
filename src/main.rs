@@ -7,12 +7,20 @@ use clap::Parser;
 use stybulate::{Cell, Headers, Style, Table};
 
 const APT_HISTORY_LOG: &str = "/var/log/apt/history.log";
-const MAX_COMMAND_LINE_LEN: usize = 100;
 const COMMAND_LINE_ELLIPSIS: &str = " <...>";
+const HEADERS: [&str; 5] = [
+    "ID",
+    "Command line",
+    "Date and time",
+    "Action(s)",
+    "Altered",
+];
+const MAX_COMMAND_LINE_LEN: usize = 100;
 
 #[derive(Clone)]
 struct HistoryEntry {
     action: String,
+    altered: usize,
     affected: String,
     command_line: String,
     end_date: String,
@@ -20,11 +28,20 @@ struct HistoryEntry {
     id: u32,
 }
 
+impl HistoryEntry {
+    fn new() -> HistoryEntry {
+        HistoryEntry {
+            ..Default::default()
+        }
+    }
+}
+
 impl Default for HistoryEntry {
     fn default() -> Self {
         HistoryEntry {
             action: "".to_string(),
             affected: "".to_string(),
+            altered: 0,
             command_line: "".to_string(),
             end_date: "".to_string(),
             id: 0,
@@ -32,7 +49,6 @@ impl Default for HistoryEntry {
         }
     }
 }
-
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -44,19 +60,35 @@ struct Args {
     command: String,
 }
 
-fn list(args: Args) -> io::Result<()> {
-    let log = File::open(APT_HISTORY_LOG)?;
-    let reader = io::BufReader::new(log);
+fn finalize_entry(entry: &mut HistoryEntry, index: u32) {
+    entry.id = index;
 
-    let mut rows: Vec<Vec<Cell>> = Vec::new();
+    let mut command_line = entry.command_line.clone();
+    if command_line.len() > MAX_COMMAND_LINE_LEN {
+        command_line = command_line[0..MAX_COMMAND_LINE_LEN - COMMAND_LINE_ELLIPSIS.len()]
+            .to_string()
+            .add(COMMAND_LINE_ELLIPSIS);
+    }
+    if command_line.starts_with("apt ") {
+        command_line = command_line[4..].to_string();
+    }
+    entry.command_line = command_line;
+
+    entry.altered = entry.affected.match_indices("),").count() + 1;
+}
+
+fn history_entries() -> Vec<HistoryEntry> {
+    let log = File::open(APT_HISTORY_LOG).unwrap();
+    let reader = io::BufReader::new(log);
 
     let mut seen_entry = false;
     let mut index = 1;
 
-    let mut entry = HistoryEntry { ..Default::default() };
+    let mut entries = vec![];
+    let mut entry = HistoryEntry::new();
 
     for line in reader.lines() {
-        let line = line?;
+        let line = line.unwrap();
 
         if line.is_empty() {
             if !seen_entry {
@@ -64,34 +96,18 @@ fn list(args: Args) -> io::Result<()> {
                 continue;
             }
 
-            entry.id = index;
-
-            let mut command_line = entry.command_line.clone();
-            if command_line.len() > MAX_COMMAND_LINE_LEN {
-                command_line = command_line[0..MAX_COMMAND_LINE_LEN - COMMAND_LINE_ELLIPSIS.len()].to_string().add(COMMAND_LINE_ELLIPSIS);
-            }
-            if command_line.starts_with("apt ") {
-                command_line = command_line[4..].to_string();
-            }
-
-            let altered = entry.affected.match_indices("),").count() + 1;
-
-            let row = vec![
-                Cell::Int(index as i32),
-                Cell::from(&command_line),
-                Cell::from(&entry.start_date),
-                Cell::from(&entry.action),
-                Cell::Int(altered as i32),
-            ];
-            rows.push(row);
+            finalize_entry(&mut entry, index);
+            entries.push(entry);
             index += 1;
-            entry = HistoryEntry { ..Default::default() };
+            entry = HistoryEntry::new();
             continue;
         }
 
         let mut fields = line.split(": ");
         let descriptor = fields.nth(0).unwrap();
-        let value = fields.last().expect(format!("error processing line `{}`", line).as_str());
+        let value = fields
+            .last()
+            .expect(format!("error processing line `{}`", line).as_str());
 
         match descriptor {
             "Commandline" => entry.command_line = value.to_string(),
@@ -106,35 +122,49 @@ fn list(args: Args) -> io::Result<()> {
                 }
             }
             "Error" | "Requested-By" => {}
-            _ => panic!("unknown field {}", descriptor)
+            _ => panic!("unknown field {}", descriptor),
         }
     }
 
-    // Default behavior is to list entries in descending order by ID.
-    if !args.reverse {
-        rows.reverse();
-    }
-
-    let result = Table::new(
-        Style::Presto,
-        rows,
-        Some(Headers::from(vec!["ID", "Command line", "Date and time", "Action(s)", "Altered"])),
-    ).tabulate();
-    println!("{}", result);
-
-    Ok(())
+    // Last line is not empty.
+    finalize_entry(&mut entry, index);
+    entries.push(entry);
+    entries
 }
 
-fn history(args: Args) -> io::Result<()> {
+fn list(args: Args) {
+    let mut entries = history_entries();
+
+    // Default behavior is to list entries in descending order by ID.
+    if !args.reverse {
+        entries.reverse();
+    }
+
+    let mut rows: Vec<Vec<Cell>> = Vec::new();
+    entries.iter().for_each(|entry| {
+        let row = vec![
+            Cell::Int(entry.id as i32),
+            Cell::from(&entry.command_line),
+            Cell::from(&entry.start_date),
+            Cell::from(&entry.action),
+            Cell::Int(entry.altered as i32),
+        ];
+        rows.push(row);
+    });
+
+    let table = Table::new(Style::Presto, rows,
+                           Some(Headers::from(HEADERS.to_vec()))).tabulate();
+    println!("{}", table);
+}
+
+fn history(args: Args) {
     match args.command.as_str() {
         "list" => list(args),
-        _ => panic!("unknown command: `{}`", args.command)
+        _ => panic!("unknown command: `{}`", args.command),
     }
 }
 
 fn main() {
     let args = Args::parse();
-    if let Err(e) = history(args) {
-        eprintln!("{}", e);
-    }
+    history(args);
 }
