@@ -97,7 +97,7 @@ fn list(args: Args) -> io::Result<()> {
             "Commandline" => entry.command_line = value.to_string(),
             "End-Date" => entry.end_date = value.to_string(),
             "Start-Date" => entry.start_date = value.to_string(),
-            "Install" | "Purge" | "Remove" | "Upgrade" => {
+            "Install" | "Purge" | "Reinstall" | "Remove" | "Upgrade" => {
                 entry.action = descriptor.to_string();
                 if entry.affected.is_empty() {
                     entry.affected = value.to_string();
