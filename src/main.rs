@@ -58,6 +58,8 @@ struct Args {
 
     #[arg(default_value = "list")]
     command: String,
+
+    id: Option<u32>,
 }
 
 fn finalize_entry(entry: &mut HistoryEntry, index: u32) {
@@ -132,6 +134,50 @@ fn history_entries() -> Vec<HistoryEntry> {
     entries
 }
 
+fn get_affected(affected: &str) -> Vec<String> {
+    let mut out : String = String::new();
+    let mut discard_next = false;
+    let mut inside_parens = false;
+    let mut pkgs: Vec<String> = vec!();
+
+    for c in affected.chars() {
+        match c {
+            '(' => {
+                inside_parens = true;
+                pkgs.push(out.trim().to_string());
+                out = String::new();
+                continue
+            },
+            ')' => {
+                inside_parens = false;
+                discard_next = true;
+                continue
+            },
+            _ => {},
+        }
+
+        if inside_parens {
+            continue
+        }
+        if discard_next {
+            discard_next = false;
+            continue
+        }
+
+        out.push(c);
+    }
+
+    pkgs
+}
+
+fn info(args: Args) {
+    let entries = history_entries();
+    let id = args.id.unwrap() as usize;
+    let entry = entries.get(id-1).unwrap();
+    let affected = get_affected(&entry.affected);
+    println!("Packages Altered:\n    {} {}", entry.action, affected.join(" "))
+}
+
 fn list(args: Args) {
     let mut entries = history_entries();
 
@@ -160,6 +206,7 @@ fn list(args: Args) {
 fn history(args: Args) {
     match args.command.as_str() {
         "list" => list(args),
+        "info" => info(args),
         _ => panic!("unknown command: `{}`", args.command),
     }
 }
