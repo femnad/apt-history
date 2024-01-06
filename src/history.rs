@@ -207,10 +207,13 @@ pub fn info(id: Option<u32>) {
 
     let entry = entries.get(id - 1).unwrap();
 
-    println!("Transaction ID: {}", id);
-    println!("Begin time: {}", entry.start_date);
-    println!("End time: {}", entry.end_date);
-    println!("Command line: {}", entry.command_line);
+    let mut table = tabular::Table::new("{:<}: {:<}");
+    table.add_row(tabular::Row::new().with_cell("Transaction ID").with_cell(id));
+    table.add_row(tabular::Row::new().with_cell("Begin time").with_cell(&entry.start_date));
+    table.add_row(tabular::Row::new().with_cell("End time").with_cell(&entry.end_date));
+    table.add_row(tabular::Row::new().with_cell("Command Line").with_cell(&entry.command_line));
+    print!("{table}");
+
     println!("Packages Altered:");
 
     let mut actions: Vec<_> = entry.affected.keys().collect();
