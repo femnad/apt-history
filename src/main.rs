@@ -153,7 +153,6 @@ fn history_entries() -> Vec<HistoryEntry> {
         let filename = filename.to_str().expect("error reading file name");
         if log_file_regex.is_match(filename) {
             history_files.push(entry.path());
-            println!("{filename}");
         }
     }
 
@@ -208,6 +207,12 @@ fn get_affected(affected: &str) -> Vec<String> {
 fn info(args: Args) {
     let entries = history_entries();
     let id = args.id.unwrap() as usize;
+    // IDs are 1-indexed
+    if id > entries.len() {
+        eprintln!("No entry with ID {id}");
+        return;
+    }
+
     let entry = entries.get(id - 1).unwrap();
     let affected = get_affected(&entry.affected);
     println!(
