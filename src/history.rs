@@ -213,8 +213,9 @@ pub fn info(id: Option<u32>) {
 pub fn list(reverse: bool) {
     let mut entries = history_entries();
 
-    // Default behavior is to list entries in descending order by ID.
-    if reverse {
+    // Default behavior of dnf is to list entries in descending order by ID, the entries we get by
+    // parsing history logs is in ascending order by default.
+    if !reverse {
         entries.reverse();
     }
 
