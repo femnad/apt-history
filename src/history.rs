@@ -213,8 +213,13 @@ pub fn info(id: Option<u32>) {
     println!("Command line: {}", entry.command_line);
     println!("Packages Altered:");
 
-    for (action, pkgs) in entry.affected.iter() {
-        for pkg in get_affected(pkgs) {
+    let mut actions: Vec<_> = entry.affected.keys().collect();
+    actions.sort();
+    for action in actions {
+        let pkgs = entry.affected.get(action).expect("unexpected entry miss in map");
+        let mut ordered = get_affected(pkgs);
+        ordered.sort();
+        for pkg in ordered {
             println!("\t{} {}", action, pkg)
         }
     }
