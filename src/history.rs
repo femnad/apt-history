@@ -1,5 +1,6 @@
 use flate2::read::GzDecoder;
 use regex::Regex;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufRead;
 use std::ops::Add;
@@ -23,7 +24,7 @@ const MAX_COMMAND_LINE_LEN: usize = 100;
 struct HistoryEntry {
     action: String,
     altered: usize,
-    affected: String,
+    affected: HashMap<String, String>,
     command_line: String,
     end_date: String,
     start_date: String,
@@ -42,7 +43,7 @@ impl Default for HistoryEntry {
     fn default() -> Self {
         HistoryEntry {
             action: "".to_string(),
-            affected: "".to_string(),
+            affected: HashMap::new(),
             altered: 0,
             command_line: "".to_string(),
             end_date: "".to_string(),
@@ -66,7 +67,11 @@ fn finalize_entry(entry: &mut HistoryEntry, index: u32) {
     }
     entry.command_line = command_line;
 
-    entry.altered = entry.affected.match_indices("),").count() + 1;
+    let mut altered = 0;
+    for affected in entry.affected.values() {
+        altered += affected.match_indices("),").count() + 1;
+    }
+    entry.altered = altered;
 }
 
 fn entries_from_file(filename: &str, index_start: u32) -> Vec<HistoryEntry> {
@@ -112,11 +117,9 @@ fn entries_from_file(filename: &str, index_start: u32) -> Vec<HistoryEntry> {
             "Start-Date" => entry.start_date = value.to_string(),
             "Install" | "Purge" | "Reinstall" | "Remove" | "Upgrade" => {
                 entry.action = descriptor.to_string();
-                if entry.affected.is_empty() {
-                    entry.affected = value.to_string();
-                } else {
-                    entry.affected = format!(" {}", entry.affected)
-                }
+                entry
+                    .affected
+                    .insert(descriptor.to_string(), value.to_string());
             }
             "Error" | "Requested-By" => {}
             _ => panic!("unknown field {}", descriptor),
@@ -203,10 +206,17 @@ pub fn info(id: Option<u32>) {
     }
 
     let entry = entries.get(id - 1).unwrap();
-    let affected = get_affected(&entry.affected);
+
+    println!("Transaction ID: {}", id);
+    println!("Begin time: {}", entry.start_date);
+    println!("End time: {}", entry.end_date);
+    println!("Command line: {}", entry.command_line);
     println!("Packages Altered:");
-    for pkg in affected {
-        println!("\t{} {}", entry.action, pkg)
+
+    for (action, pkgs) in entry.affected.iter() {
+        for pkg in get_affected(pkgs) {
+            println!("\t{} {}", action, pkg)
+        }
     }
 }
 
