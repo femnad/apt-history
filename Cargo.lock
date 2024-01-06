@@ -78,6 +78,7 @@ dependencies = [
 name = "apt-history"
 version = "0.1.0"
 dependencies = [
+ "ansi_term",
  "clap",
  "flate2",
  "regex",
