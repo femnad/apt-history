@@ -1,3 +1,4 @@
+use ansi_term;
 use flate2::read::GzDecoder;
 use regex::Regex;
 use std::collections::HashMap;
@@ -7,7 +8,6 @@ use std::ops::Add;
 use std::path::PathBuf;
 use std::{fs, io};
 use stybulate::{Cell, Headers, Style, Table};
-use ansi_term;
 
 const APT_LOG_PATH: &str = "/var/log/apt";
 const APT_HISTORY_LOG_PATTERN: &str = r"history\.log(\.[0-9]+\.gz)?";
@@ -209,10 +209,26 @@ pub fn info(id: Option<u32>) {
     let entry = entries.get(id - 1).unwrap();
 
     let mut header_table = tabular::Table::new("{:<}: {:<}");
-    header_table.add_row(tabular::Row::new().with_cell("Transaction ID").with_cell(id));
-    header_table.add_row(tabular::Row::new().with_cell("Begin time").with_cell(&entry.start_date));
-    header_table.add_row(tabular::Row::new().with_cell("End time").with_cell(&entry.end_date));
-    header_table.add_row(tabular::Row::new().with_cell("Command Line").with_cell(&entry.command_line));
+    header_table.add_row(
+        tabular::Row::new()
+            .with_cell("Transaction ID")
+            .with_cell(id),
+    );
+    header_table.add_row(
+        tabular::Row::new()
+            .with_cell("Begin time")
+            .with_cell(&entry.start_date),
+    );
+    header_table.add_row(
+        tabular::Row::new()
+            .with_cell("End time")
+            .with_cell(&entry.end_date),
+    );
+    header_table.add_row(
+        tabular::Row::new()
+            .with_cell("Command Line")
+            .with_cell(&entry.command_line),
+    );
     header_table.add_row(tabular::Row::new().with_cell("Comment").with_cell(""));
     print!("{header_table}");
 
@@ -224,11 +240,18 @@ pub fn info(id: Option<u32>) {
 
     let style = ansi_term::Style::new().bold();
     for action in actions {
-        let pkgs = entry.affected.get(action).expect("unexpected entry miss in map");
+        let pkgs = entry
+            .affected
+            .get(action)
+            .expect("unexpected entry miss in map");
         let mut ordered = get_affected(pkgs);
         ordered.sort();
         for pkg in ordered {
-            pkgs_table.add_row(tabular::Row::new().with_cell(style.paint(action)).with_cell(pkg));
+            pkgs_table.add_row(
+                tabular::Row::new()
+                    .with_cell(style.paint(action))
+                    .with_cell(pkg),
+            );
         }
     }
 
