@@ -1,12 +1,16 @@
+use flate2::read::GzDecoder;
 use std::fs::File;
-use std::io;
 use std::io::BufRead;
 use std::ops::Add;
+use std::path::PathBuf;
+use std::{fs, io};
 
 use clap::Parser;
+use regex::Regex;
 use stybulate::{Cell, Headers, Style, Table};
 
-const APT_HISTORY_LOG: &str = "/var/log/apt/history.log";
+const APT_LOG_PATH: &str = "/var/log/apt";
+const APT_HISTORY_LOG_PATTERN: &str = r"history\.log(\.[0-9]+\.gz)?";
 const COMMAND_LINE_ELLIPSIS: &str = " <...>";
 const HEADERS: [&str; 5] = [
     "ID",
@@ -79,12 +83,17 @@ fn finalize_entry(entry: &mut HistoryEntry, index: u32) {
     entry.altered = entry.affected.match_indices("),").count() + 1;
 }
 
-fn history_entries() -> Vec<HistoryEntry> {
-    let log = File::open(APT_HISTORY_LOG).unwrap();
-    let reader = io::BufReader::new(log);
+fn entries_from_file(filename: &str, index_start: u32) -> Vec<HistoryEntry> {
+    let log = File::open(filename).unwrap();
+    let reader: Box<dyn BufRead> = if filename.ends_with(".gz") {
+        let gz = GzDecoder::new(log);
+        Box::new(io::BufReader::new(gz))
+    } else {
+        Box::new(io::BufReader::new(log))
+    };
 
     let mut seen_entry = false;
-    let mut index = 1;
+    let mut index = index_start;
 
     let mut entries = vec![];
     let mut entry = HistoryEntry::new();
@@ -134,11 +143,37 @@ fn history_entries() -> Vec<HistoryEntry> {
     entries
 }
 
+fn history_entries() -> Vec<HistoryEntry> {
+    let log_file_regex = Regex::new(APT_HISTORY_LOG_PATTERN).expect("error parsing file regex");
+    let mut history_files: Vec<PathBuf> = vec![];
+
+    for entry in fs::read_dir(APT_LOG_PATH).expect("error reading apt log path") {
+        let entry = entry.expect("error reading dir entry");
+        let filename = entry.file_name();
+        let filename = filename.to_str().expect("error reading file name");
+        if log_file_regex.is_match(filename) {
+            history_files.push(entry.path());
+            println!("{filename}");
+        }
+    }
+
+    let mut combined: Vec<HistoryEntry> = vec![];
+    let mut id: u32 = 1;
+    for file in history_files {
+        let entries = entries_from_file(file.to_str().expect("error getting file path"), id);
+        let num_entries = entries.len() as u32;
+        combined.extend(entries);
+        id += num_entries;
+    }
+
+    combined
+}
+
 fn get_affected(affected: &str) -> Vec<String> {
-    let mut out : String = String::new();
+    let mut out: String = String::new();
     let mut discard_next = false;
     let mut inside_parens = false;
-    let mut pkgs: Vec<String> = vec!();
+    let mut pkgs: Vec<String> = vec![];
 
     for c in affected.chars() {
         match c {
@@ -146,22 +181,22 @@ fn get_affected(affected: &str) -> Vec<String> {
                 inside_parens = true;
                 pkgs.push(out.trim().to_string());
                 out = String::new();
-                continue
-            },
+                continue;
+            }
             ')' => {
                 inside_parens = false;
                 discard_next = true;
-                continue
-            },
-            _ => {},
+                continue;
+            }
+            _ => {}
         }
 
         if inside_parens {
-            continue
+            continue;
         }
         if discard_next {
             discard_next = false;
-            continue
+            continue;
         }
 
         out.push(c);
@@ -173,9 +208,13 @@ fn get_affected(affected: &str) -> Vec<String> {
 fn info(args: Args) {
     let entries = history_entries();
     let id = args.id.unwrap() as usize;
-    let entry = entries.get(id-1).unwrap();
+    let entry = entries.get(id - 1).unwrap();
     let affected = get_affected(&entry.affected);
-    println!("Packages Altered:\n    {} {}", entry.action, affected.join(" "))
+    println!(
+        "Packages Altered:\n    {} {}",
+        entry.action,
+        affected.join(" ")
+    )
 }
 
 fn list(args: Args) {
@@ -198,8 +237,7 @@ fn list(args: Args) {
         rows.push(row);
     });
 
-    let table = Table::new(Style::Presto, rows,
-                           Some(Headers::from(HEADERS.to_vec()))).tabulate();
+    let table = Table::new(Style::Presto, rows, Some(Headers::from(HEADERS.to_vec()))).tabulate();
     println!("{}", table);
 }
 
