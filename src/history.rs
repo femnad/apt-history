@@ -1,4 +1,5 @@
 use ansi_term;
+use chrono::prelude::*;
 use flate2::read::GzDecoder;
 use regex::Regex;
 use std::collections::HashMap;
@@ -19,17 +20,20 @@ const HEADERS: [&str; 5] = [
     "Action(s)",
     "Altered",
 ];
+const INFO_DATE_FORMAT: &str = "%a %b %e %H:%M:%S %Y";
+const LIST_DATE_FORMAT: &str = "%F %H:%M";
+const LOG_FILE_DATE_FORMAT: &str = "%Y-%m-%d  %H:%M:%S";
 const MAX_COMMAND_LINE_LEN: usize = 100;
 
 #[derive(Clone)]
 struct HistoryEntry {
     action: String,
-    altered: usize,
     affected: HashMap<String, String>,
+    altered: usize,
     command_line: String,
-    end_date: String,
-    start_date: String,
+    end_date: NaiveDateTime,
     id: u32,
+    start_date: NaiveDateTime,
 }
 
 impl HistoryEntry {
@@ -47,9 +51,9 @@ impl Default for HistoryEntry {
             affected: HashMap::new(),
             altered: 0,
             command_line: "".to_string(),
-            end_date: "".to_string(),
+            end_date: Local::now().naive_local(),
             id: 0,
-            start_date: "".to_string(),
+            start_date: Local::now().naive_local(),
         }
     }
 }
@@ -114,8 +118,14 @@ fn entries_from_file(filename: &str, index_start: u32) -> Vec<HistoryEntry> {
 
         match descriptor {
             "Commandline" => entry.command_line = value.to_string(),
-            "End-Date" => entry.end_date = value.to_string(),
-            "Start-Date" => entry.start_date = value.to_string(),
+            "End-Date" => {
+                entry.end_date = NaiveDateTime::parse_from_str(value, LOG_FILE_DATE_FORMAT)
+                    .expect("error parsing end date")
+            }
+            "Start-Date" => {
+                entry.start_date = NaiveDateTime::parse_from_str(value, LOG_FILE_DATE_FORMAT)
+                    .expect("error parsing start date");
+            }
             "Install" | "Purge" | "Reinstall" | "Remove" | "Upgrade" => {
                 entry.action = descriptor.to_string();
                 entry
@@ -217,19 +227,28 @@ pub fn info(id: Option<u32>) {
     header_table.add_row(
         tabular::Row::new()
             .with_cell("Begin time")
-            .with_cell(&entry.start_date),
+            .with_cell(&entry.start_date.format(INFO_DATE_FORMAT)),
+    );
+
+    let duration = entry.end_date - entry.start_date;
+    let end_time = format!(
+        "{} ({} seconds)",
+        entry.end_date.format(INFO_DATE_FORMAT),
+        duration.num_seconds()
     );
     header_table.add_row(
         tabular::Row::new()
             .with_cell("End time")
-            .with_cell(&entry.end_date),
+            .with_cell(end_time),
     );
+
     header_table.add_row(
         tabular::Row::new()
             .with_cell("Command Line")
             .with_cell(&entry.command_line),
     );
     header_table.add_row(tabular::Row::new().with_cell("Comment").with_cell(""));
+
     print!("{header_table}");
 
     println!("Packages Altered:");
@@ -272,7 +291,7 @@ pub fn list(reverse: bool) {
         let row = vec![
             Cell::Int(entry.id as i32),
             Cell::from(&entry.command_line),
-            Cell::from(&entry.start_date),
+            Cell::from(&entry.start_date.format(LIST_DATE_FORMAT).to_string()),
             Cell::from(&entry.action),
             Cell::Int(entry.altered as i32),
         ];
