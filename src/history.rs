@@ -20,9 +20,9 @@ const HEADERS: [&str; 5] = [
     "Action(s)",
     "Altered",
 ];
-const INFO_DATE_FORMAT: &str = "%a %b %e %H:%M:%S %Y";
+const INFO_DATE_FORMAT: &str = "%a %b %e %T %Y";
 const LIST_DATE_FORMAT: &str = "%F %H:%M";
-const LOG_FILE_DATE_FORMAT: &str = "%Y-%m-%d  %H:%M:%S";
+const LOG_FILE_DATE_FORMAT: &str = "%F  %T";
 const MAX_COMMAND_LINE_LEN: usize = 100;
 
 #[derive(Clone)]
@@ -88,11 +88,10 @@ fn entries_from_file(filename: &str, index_start: u32) -> Vec<HistoryEntry> {
         Box::new(io::BufReader::new(log))
     };
 
-    let mut seen_entry = false;
-    let mut index = index_start;
-
     let mut entries = vec![];
     let mut entry = HistoryEntry::new();
+    let mut index = index_start;
+    let mut seen_entry = false;
 
     for line in reader.lines() {
         let line = line.unwrap();
@@ -217,6 +216,12 @@ pub fn info(id: Option<u32>) {
     }
 
     let entry = entries.get(id - 1).unwrap();
+    let duration = entry.end_date - entry.start_date;
+    let end_time = format!(
+        "{} ({} seconds)",
+        entry.end_date.format(INFO_DATE_FORMAT),
+        duration.num_seconds()
+    );
 
     let mut header_table = tabular::Table::new("{:<}: {:<}");
     header_table.add_row(
@@ -229,19 +234,11 @@ pub fn info(id: Option<u32>) {
             .with_cell("Begin time")
             .with_cell(&entry.start_date.format(INFO_DATE_FORMAT)),
     );
-
-    let duration = entry.end_date - entry.start_date;
-    let end_time = format!(
-        "{} ({} seconds)",
-        entry.end_date.format(INFO_DATE_FORMAT),
-        duration.num_seconds()
-    );
     header_table.add_row(
         tabular::Row::new()
             .with_cell("End time")
             .with_cell(end_time),
     );
-
     header_table.add_row(
         tabular::Row::new()
             .with_cell("Command Line")
@@ -250,7 +247,6 @@ pub fn info(id: Option<u32>) {
     header_table.add_row(tabular::Row::new().with_cell("Comment").with_cell(""));
 
     print!("{header_table}");
-
     println!("Packages Altered:");
 
     let mut pkgs_table = tabular::Table::new("    {:>} {:<}");
