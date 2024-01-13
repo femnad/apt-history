@@ -27,7 +27,7 @@ const MAX_COMMAND_LINE_LEN: usize = 100;
 
 #[derive(Clone)]
 struct HistoryEntry {
-    action: String,
+    actions: Vec<String>,
     affected: HashMap<String, String>,
     altered: usize,
     command_line: String,
@@ -47,7 +47,7 @@ impl HistoryEntry {
 impl Default for HistoryEntry {
     fn default() -> Self {
         HistoryEntry {
-            action: "".to_string(),
+            actions: vec![],
             affected: HashMap::new(),
             altered: 0,
             command_line: "".to_string(),
@@ -126,7 +126,7 @@ fn entries_from_file(filename: &str, index_start: u32) -> Vec<HistoryEntry> {
                     .expect("error parsing start date");
             }
             "Install" | "Purge" | "Reinstall" | "Remove" | "Upgrade" => {
-                entry.action = descriptor.to_string();
+                entry.actions.push(descriptor.to_string());
                 entry
                     .affected
                     .insert(descriptor.to_string(), value.to_string());
@@ -284,11 +284,33 @@ pub fn list(reverse: bool) {
 
     let mut rows: Vec<Vec<Cell>> = Vec::new();
     entries.iter().for_each(|entry| {
+        let actions = if entry.actions.len() == 1 {
+            entry
+                .actions
+                .get(0)
+                .expect("error getting action of history entry")
+                .to_string()
+        } else {
+            let mut initials: Vec<_> = entry
+                .actions
+                .iter()
+                .map(|a| {
+                    a.chars()
+                        .nth(0)
+                        .expect("error getting first char of action")
+                        .to_string()
+                })
+                .collect();
+            initials.sort();
+            let joined = initials.join(", ");
+            joined
+        };
+
         let row = vec![
             Cell::Int(entry.id as i32),
             Cell::from(&entry.command_line),
             Cell::from(&entry.start_date.format(LIST_DATE_FORMAT).to_string()),
-            Cell::from(&entry.action),
+            Cell::from(&actions),
             Cell::Int(entry.altered as i32),
         ];
         rows.push(row);
