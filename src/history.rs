@@ -20,6 +20,8 @@ const HEADERS: [&str; 5] = [
     "Action(s)",
     "Altered",
 ];
+const SEPARATOR_CHAR: char = '-';
+const SEPARATOR_LENGTH: usize = 79;
 const INFO_DATE_FORMAT: &str = "%a %b %e %T %Y";
 const LIST_DATE_FORMAT: &str = "%F %H:%M";
 const LOG_FILE_DATE_FORMAT: &str = "%F  %T";
@@ -203,19 +205,7 @@ fn get_affected(affected: &str) -> Vec<String> {
     pkgs
 }
 
-pub fn info(id: Option<u32>) {
-    let entries = history_entries();
-    let id = id
-        .or(Some(entries.len() as u32))
-        .expect("error getting ID of history entry");
-    let id = id as usize;
-    // IDs are 1-indexed
-    if id > entries.len() {
-        eprintln!("No entry with ID {id}");
-        return;
-    }
-
-    let entry = entries.get(id - 1).unwrap();
+fn show_transaction(entry: &HistoryEntry) {
     let duration = entry.end_date - entry.start_date;
     let end_time = format!(
         "{} ({} seconds)",
@@ -227,7 +217,7 @@ pub fn info(id: Option<u32>) {
     header_table.add_row(
         tabular::Row::new()
             .with_cell("Transaction ID")
-            .with_cell(id),
+            .with_cell(entry.id),
     );
     header_table.add_row(
         tabular::Row::new()
@@ -273,8 +263,38 @@ pub fn info(id: Option<u32>) {
     print!("{pkgs_table}");
 }
 
-pub fn list(reverse: bool) {
+pub fn info(id: Option<Vec<u32>>) {
+    let entries = history_entries();
+    let ids = id
+        .or(Some(vec![entries.len() as u32]))
+        .expect("error getting ID of history entry");
+
+    // IDs are 1-indexed
+    let max_id = (entries.len() as u32) + 1;
+    let ids: Vec<u32> = ids.iter()
+        .filter(|i| i <= &&max_id)
+        .cloned()
+        .collect();
+
+    let selected: Vec<HistoryEntry> = entries.iter()
+        .filter(|e| ids.contains(&e.id))
+        .cloned()
+        .collect();
+
+    let separator = SEPARATOR_CHAR.to_string().repeat(SEPARATOR_LENGTH);
+    for (index, entry) in selected.iter().enumerate() {
+        if index > 0 {
+            println!("{separator}")
+        }
+        show_transaction(entry)
+    }
+}
+
+pub fn list(ids: Option<Vec<u32>>, reverse: bool) {
     let mut entries = history_entries();
+    if let Some(ids) = ids {
+        entries = entries.iter().filter(|e| ids.contains(&e.id)).cloned().collect();
+    }
 
     // Default behavior of dnf is to list entries in descending order by ID, the entries we get by
     // parsing history logs is in ascending order by default.

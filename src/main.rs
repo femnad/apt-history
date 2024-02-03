@@ -11,12 +11,12 @@ struct Args {
     #[arg(default_value = "list")]
     command: String,
 
-    id: Option<u32>,
+    id: Option<Vec<u32>>,
 }
 
 fn history(args: Args) {
     match args.command.as_str() {
-        "list" => history::list(args.reverse),
+        "list" => history::list(args.id, args.reverse),
         "info" => history::info(args.id),
         _ => panic!("unknown command: `{}`", args.command),
     }
