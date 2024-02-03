@@ -2,7 +2,7 @@ use ansi_term;
 use chrono::prelude::*;
 use flate2::read::GzDecoder;
 use regex::Regex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::BufRead;
 use std::ops::Add;
@@ -29,8 +29,7 @@ const MAX_COMMAND_LINE_LEN: usize = 100;
 
 #[derive(Clone)]
 struct HistoryEntry {
-    actions: Vec<String>,
-    affected: HashMap<String, String>,
+    affected: HashMap<String, HashMap<String, HashSet<String>>>,
     altered: usize,
     command_line: String,
     end_date: NaiveDateTime,
@@ -49,7 +48,6 @@ impl HistoryEntry {
 impl Default for HistoryEntry {
     fn default() -> Self {
         HistoryEntry {
-            actions: vec![],
             affected: HashMap::new(),
             altered: 0,
             command_line: "".to_string(),
@@ -60,7 +58,7 @@ impl Default for HistoryEntry {
     }
 }
 
-fn finalize_entry(entry: &mut HistoryEntry, index: u32) {
+fn finalize_entry(entry: &mut HistoryEntry, index: u32, package_map: &HashMap<String, HashMap<String, HashSet<String>>>) {
     entry.id = index;
 
     let mut command_line = entry.command_line.clone();
@@ -75,10 +73,53 @@ fn finalize_entry(entry: &mut HistoryEntry, index: u32) {
     entry.command_line = command_line;
 
     let mut altered = 0;
-    for affected in entry.affected.values() {
-        altered += affected.match_indices("),").count() + 1;
+    for packages in package_map.values() {
+        altered += packages.len();
     }
     entry.altered = altered;
+    entry.affected = package_map.clone();
+}
+
+fn add_parsed_package(packages: &HashMap<String, HashSet<String>>, package: String) -> HashMap<String, HashSet<String>>{
+    let fields: Vec<&str> = package.split(":").collect();
+    let name = fields.get(0).expect("Unable to parse package name");
+    let arch = fields.get(1).expect("Unable to parse package architecture");
+
+    let mut packages = packages.clone();
+    if packages.contains_key(&arch.to_string()) {
+        packages.get_mut(&arch.to_string()).expect("Unable to update package map").insert(name.to_string());
+    } else {
+        let mut package_set = HashSet::new();
+        package_set.insert(name.to_string());
+        packages.insert(arch.to_string(), package_set);
+    }
+    return packages;
+}
+
+fn packages_from_action_line(line: String) -> HashMap<String, HashSet<String>> {
+    let mut packages: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut package = String::new();
+    let mut inside_parens = false;
+
+    for c in line.chars() {
+        match c {
+            '(' => inside_parens = true,
+            ')' => inside_parens = false,
+            ',' => {
+                if !inside_parens {
+                    packages = add_parsed_package(&packages, package.trim().to_string());
+                    package = String::new();
+                }
+            }
+            _ => if !inside_parens {
+                package.push(c)
+            }
+        }
+    };
+
+    // Line does not end with a comma.
+    add_parsed_package(&mut packages, package);
+    return packages;
 }
 
 fn entries_from_file(filename: &str, index_start: u32) -> Vec<HistoryEntry> {
@@ -94,6 +135,7 @@ fn entries_from_file(filename: &str, index_start: u32) -> Vec<HistoryEntry> {
     let mut entry = HistoryEntry::new();
     let mut index = index_start;
     let mut seen_entry = false;
+    let mut package_map: HashMap<String, HashMap<String, HashSet<String>>> = HashMap::new();
 
     for line in reader.lines() {
         let line = line.unwrap();
@@ -104,7 +146,8 @@ fn entries_from_file(filename: &str, index_start: u32) -> Vec<HistoryEntry> {
                 continue;
             }
 
-            finalize_entry(&mut entry, index);
+            finalize_entry(&mut entry, index, &package_map);
+            package_map.clear();
             entries.push(entry);
             index += 1;
             entry = HistoryEntry::new();
@@ -128,10 +171,7 @@ fn entries_from_file(filename: &str, index_start: u32) -> Vec<HistoryEntry> {
                     .expect("error parsing start date");
             }
             "Install" | "Purge" | "Reinstall" | "Remove" | "Upgrade" => {
-                entry.actions.push(descriptor.to_string());
-                entry
-                    .affected
-                    .insert(descriptor.to_string(), value.to_string());
+                package_map.insert(descriptor.to_string(), packages_from_action_line(value.to_string()));
             }
             "Error" | "Requested-By" => {}
             _ => panic!("unknown field {}", descriptor),
@@ -139,7 +179,7 @@ fn entries_from_file(filename: &str, index_start: u32) -> Vec<HistoryEntry> {
     }
 
     // Last line is not empty.
-    finalize_entry(&mut entry, index);
+    finalize_entry(&mut entry, index, &package_map);
     entries.push(entry);
     entries
 }
@@ -167,42 +207,6 @@ fn history_entries() -> Vec<HistoryEntry> {
     }
 
     combined
-}
-
-fn get_affected(affected: &str) -> Vec<String> {
-    let mut out: String = String::new();
-    let mut discard_next = false;
-    let mut inside_parens = false;
-    let mut pkgs: Vec<String> = vec![];
-
-    for c in affected.chars() {
-        match c {
-            '(' => {
-                inside_parens = true;
-                pkgs.push(out.trim().to_string());
-                out = String::new();
-                continue;
-            }
-            ')' => {
-                inside_parens = false;
-                discard_next = true;
-                continue;
-            }
-            _ => {}
-        }
-
-        if inside_parens {
-            continue;
-        }
-        if discard_next {
-            discard_next = false;
-            continue;
-        }
-
-        out.push(c);
-    }
-
-    pkgs
 }
 
 fn show_transaction(entry: &HistoryEntry) {
@@ -240,18 +244,25 @@ fn show_transaction(entry: &HistoryEntry) {
     println!("Packages Altered:");
 
     let mut pkgs_table = tabular::Table::new("    {:>} {:<}");
-    let mut actions: Vec<_> = entry.affected.keys().collect();
+    let mut actions: Vec<&String> = entry.affected.keys().clone().collect();
     actions.sort();
 
     let style = ansi_term::Style::new().bold();
     for action in actions {
-        let pkgs = entry
+        let pkg_map: &HashMap<String, HashSet<String>> = entry
             .affected
-            .get(action)
+            .get(action.as_str())
             .expect("unexpected entry miss in map");
-        let mut ordered = get_affected(pkgs);
-        ordered.sort();
-        for pkg in ordered {
+
+        let mut pkgs: Vec<String> = Vec::new();
+        for (arch, pkg_list) in pkg_map.iter() {
+            for pkg in pkg_list {
+                pkgs.push(format!("{pkg}:{arch}"))
+            }
+        }
+        pkgs.sort();
+
+        for pkg in pkgs {
             pkgs_table.add_row(
                 tabular::Row::new()
                     .with_cell(style.paint(action))
@@ -263,23 +274,49 @@ fn show_transaction(entry: &HistoryEntry) {
     print!("{pkgs_table}");
 }
 
-pub fn info(id: Option<Vec<u32>>) {
-    let entries = history_entries();
-    let ids = id
-        .or(Some(vec![entries.len() as u32]))
+fn matches(entry: &HistoryEntry, ids: &HashSet<u32>, packages: &HashSet<String>) -> bool {
+    if ids.contains(&entry.id) {
+        return true;
+    }
+
+    for affected in entry.affected.values() {
+        for pkgs in affected.values() {
+            let union: HashSet<&String> = packages.intersection(pkgs).collect();
+            if union.len() > 0 {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+fn matching_entries(query: Option<Vec<String>>, entries: &Vec<HistoryEntry>) -> Vec<HistoryEntry> {
+    let max_id = (entries.len() as u32) + 1;
+    let fallback_transaction: String = max_id.to_string();
+
+    let transactions = query
+        .or(Some(vec![fallback_transaction]))
         .expect("error getting ID of history entry");
 
-    // IDs are 1-indexed
-    let max_id = (entries.len() as u32) + 1;
-    let ids: Vec<u32> = ids.iter()
-        .filter(|i| i <= &&max_id)
-        .cloned()
-        .collect();
+    let mut ids: HashSet<u32> = HashSet::new();
+    let mut packages: HashSet<String> = HashSet::new();
+    for transaction in transactions {
+        match transaction.parse::<u32>() {
+            Ok(id) => ids.insert(id),
+            Err(_) => packages.insert(transaction)
+        };
+    }
 
-    let selected: Vec<HistoryEntry> = entries.iter()
-        .filter(|e| ids.contains(&e.id))
+    return entries.iter()
+        .filter(|e| matches(e, &ids, &packages))
         .cloned()
         .collect();
+}
+
+pub fn info(query: Option<Vec<String>>) {
+    let entries = history_entries();
+    let selected = matching_entries(query, &entries);
 
     let separator = SEPARATOR_CHAR.to_string().repeat(SEPARATOR_LENGTH);
     for (index, entry) in selected.iter().enumerate() {
@@ -290,29 +327,26 @@ pub fn info(id: Option<Vec<u32>>) {
     }
 }
 
-pub fn list(ids: Option<Vec<u32>>, reverse: bool) {
-    let mut entries = history_entries();
-    if let Some(ids) = ids {
-        entries = entries.iter().filter(|e| ids.contains(&e.id)).cloned().collect();
-    }
+pub fn list(query: Option<Vec<String>>, reverse: bool) {
+    let entries = history_entries();
+    let mut selected = matching_entries(query, &entries);
 
     // Default behavior of dnf is to list entries in descending order by ID, the entries we get by
     // parsing history logs is in ascending order by default.
     if !reverse {
-        entries.reverse();
+        selected.reverse();
     }
 
     let mut rows: Vec<Vec<Cell>> = Vec::new();
-    entries.iter().for_each(|entry| {
-        let actions = if entry.actions.len() == 1 {
-            entry
-                .actions
+    selected.iter().for_each(|entry| {
+        let actions: Vec<&String> = entry.affected.keys().collect();
+        let actions = if actions.len() == 1 {
+            actions
                 .get(0)
                 .expect("error getting action of history entry")
                 .to_string()
         } else {
-            let mut initials: Vec<_> = entry
-                .actions
+            let mut initials: Vec<_> = actions
                 .iter()
                 .map(|a| {
                     a.chars()

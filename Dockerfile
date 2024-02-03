@@ -4,5 +4,6 @@
 from debian:bookworm
 run apt update && apt install -y neovim
 run apt install -y emacs
+run apt install -y vim
 run mkdir -p /root/bin
 workdir /root/bin
