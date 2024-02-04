@@ -8,11 +8,13 @@ use std::io::BufRead;
 use std::ops::Add;
 use std::path::PathBuf;
 use std::{fs, io};
+use std::cmp::Ordering;
 use stybulate::{Cell, Headers, Style, Table};
 
 const APT_LOG_PATH: &str = "/var/log/apt";
 const APT_HISTORY_LOG_PATTERN: &str = r"history\.log(\.[0-9]+\.gz)?";
 const COMMAND_LINE_ELLIPSIS: &str = " <...>";
+const CURRENT_HISTORY_FILE: &str = "history.log";
 const HEADERS: [&str; 5] = [
     "ID",
     "Command line",
@@ -199,6 +201,34 @@ fn entries_from_file(filename: &str, index_start: u32) -> Vec<HistoryEntry> {
     entries
 }
 
+fn path_buf_name(p: &PathBuf) -> &str {
+    p.file_name().expect("error getting file name").to_str() .expect("error converting file name")
+}
+
+fn log_file_num(f: &str) -> u32 {
+    let fields: Vec<&str> = f.split(".").collect();
+    let num_field = fields.get(2).expect("Unable to find number field in log file name");
+    let number: u32 = num_field.parse().expect("Unable to parse log file number");
+    number
+}
+
+fn sort_log_files(a: &PathBuf, b: &PathBuf) -> Ordering {
+    let a_name = path_buf_name(a);
+    let b_name = path_buf_name(b);
+
+    if a_name == CURRENT_HISTORY_FILE {
+        return Ordering::Greater
+    }
+    if b_name == CURRENT_HISTORY_FILE {
+        return Ordering::Less
+    }
+
+    let a_num = log_file_num(a_name);
+    let b_num = log_file_num(b_name);
+    // Older log files have smaller number suffixes.
+    a_num.cmp(&b_num).reverse()
+}
+
 fn history_entries() -> Vec<HistoryEntry> {
     let log_file_regex = Regex::new(APT_HISTORY_LOG_PATTERN).expect("error parsing file regex");
     let mut history_files: Vec<PathBuf> = vec![];
@@ -211,6 +241,9 @@ fn history_entries() -> Vec<HistoryEntry> {
             history_files.push(entry.path());
         }
     }
+    history_files.sort_by(sort_log_files);
+    println!("{}", history_files.get(0).unwrap().to_str().unwrap());
+    println!("{}", history_files.get(1).unwrap().to_str().unwrap());
 
     let mut combined: Vec<HistoryEntry> = vec![];
     let mut id: u32 = 1;
