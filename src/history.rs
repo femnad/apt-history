@@ -58,7 +58,11 @@ impl Default for HistoryEntry {
     }
 }
 
-fn finalize_entry(entry: &mut HistoryEntry, index: u32, package_map: &HashMap<String, HashMap<String, HashSet<String>>>) {
+fn finalize_entry(
+    entry: &mut HistoryEntry,
+    index: u32,
+    package_map: &HashMap<String, HashMap<String, HashSet<String>>>,
+) {
     entry.id = index;
 
     let mut command_line = entry.command_line.clone();
@@ -80,14 +84,20 @@ fn finalize_entry(entry: &mut HistoryEntry, index: u32, package_map: &HashMap<St
     entry.affected = package_map.clone();
 }
 
-fn add_parsed_package(packages: &HashMap<String, HashSet<String>>, package: String) -> HashMap<String, HashSet<String>>{
+fn add_parsed_package(
+    packages: &HashMap<String, HashSet<String>>,
+    package: String,
+) -> HashMap<String, HashSet<String>> {
     let fields: Vec<&str> = package.split(":").collect();
     let name = fields.get(0).expect("Unable to parse package name");
     let arch = fields.get(1).expect("Unable to parse package architecture");
 
     let mut packages = packages.clone();
     if packages.contains_key(&arch.to_string()) {
-        packages.get_mut(&arch.to_string()).expect("Unable to update package map").insert(name.to_string());
+        packages
+            .get_mut(&arch.to_string())
+            .expect("Unable to update package map")
+            .insert(name.to_string());
     } else {
         let mut package_set = HashSet::new();
         package_set.insert(name.to_string());
@@ -111,11 +121,13 @@ fn packages_from_action_line(line: String) -> HashMap<String, HashSet<String>> {
                     package = String::new();
                 }
             }
-            _ => if !inside_parens {
-                package.push(c)
+            _ => {
+                if !inside_parens {
+                    package.push(c)
+                }
             }
         }
-    };
+    }
 
     // Line does not end with a comma.
     add_parsed_package(&mut packages, package);
@@ -171,7 +183,10 @@ fn entries_from_file(filename: &str, index_start: u32) -> Vec<HistoryEntry> {
                     .expect("error parsing start date");
             }
             "Install" | "Purge" | "Reinstall" | "Remove" | "Upgrade" => {
-                package_map.insert(descriptor.to_string(), packages_from_action_line(value.to_string()));
+                package_map.insert(
+                    descriptor.to_string(),
+                    packages_from_action_line(value.to_string()),
+                );
             }
             "Error" | "Requested-By" => {}
             _ => panic!("unknown field {}", descriptor),
@@ -291,8 +306,9 @@ fn matches(entry: &HistoryEntry, ids: &HashSet<u32>, packages: &HashSet<String>)
     false
 }
 
-fn matching_entries(query: Option<Vec<String>>, entries: &Vec<HistoryEntry>) -> Vec<HistoryEntry> {
-    let max_id = (entries.len() as u32) + 1;
+fn matching_entries(query: Option<Vec<String>>) -> Vec<HistoryEntry> {
+    let entries = history_entries();
+    let max_id = entries.len() as u32;
     let fallback_transaction: String = max_id.to_string();
 
     let transactions = query
@@ -304,19 +320,21 @@ fn matching_entries(query: Option<Vec<String>>, entries: &Vec<HistoryEntry>) -> 
     for transaction in transactions {
         match transaction.parse::<u32>() {
             Ok(id) => ids.insert(id),
-            Err(_) => packages.insert(transaction)
+            Err(_) => packages.insert(transaction),
         };
     }
 
-    return entries.iter()
+    println!("{:?}", ids);
+
+    return entries
+        .iter()
         .filter(|e| matches(e, &ids, &packages))
         .cloned()
         .collect();
 }
 
 pub fn info(query: Option<Vec<String>>) {
-    let entries = history_entries();
-    let selected = matching_entries(query, &entries);
+    let selected = matching_entries(query);
 
     let separator = SEPARATOR_CHAR.to_string().repeat(SEPARATOR_LENGTH);
     for (index, entry) in selected.iter().enumerate() {
@@ -328,8 +346,11 @@ pub fn info(query: Option<Vec<String>>) {
 }
 
 pub fn list(query: Option<Vec<String>>, reverse: bool) {
-    let entries = history_entries();
-    let mut selected = matching_entries(query, &entries);
+    let mut selected = if query.is_some() {
+        matching_entries(query)
+    } else {
+        history_entries()
+    };
 
     // Default behavior of dnf is to list entries in descending order by ID, the entries we get by
     // parsing history logs is in ascending order by default.
