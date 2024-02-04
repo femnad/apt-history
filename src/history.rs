@@ -242,8 +242,6 @@ fn history_entries() -> Vec<HistoryEntry> {
         }
     }
     history_files.sort_by(sort_log_files);
-    println!("{}", history_files.get(0).unwrap().to_str().unwrap());
-    println!("{}", history_files.get(1).unwrap().to_str().unwrap());
 
     let mut combined: Vec<HistoryEntry> = vec![];
     let mut id: u32 = 1;
@@ -356,8 +354,6 @@ fn matching_entries(query: Option<Vec<String>>) -> Vec<HistoryEntry> {
             Err(_) => packages.insert(transaction),
         };
     }
-
-    println!("{:?}", ids);
 
     return entries
         .iter()
