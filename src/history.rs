@@ -80,7 +80,9 @@ fn finalize_entry(
 
     let mut altered = 0;
     for packages in package_map.values() {
-        altered += packages.len();
+        for pkgs in packages.values() {
+            altered += pkgs.len();
+        }
     }
     entry.altered = altered;
     entry.affected = package_map.clone();
@@ -115,11 +117,12 @@ fn packages_from_action_line(line: String) -> HashMap<String, HashSet<String>> {
 
     for c in line.chars() {
         match c {
+            ' ' => (),
             '(' => inside_parens = true,
             ')' => inside_parens = false,
             ',' => {
                 if !inside_parens {
-                    packages = add_parsed_package(&packages, package.trim().to_string());
+                    packages = add_parsed_package(&packages, package);
                     package = String::new();
                 }
             }
@@ -132,7 +135,7 @@ fn packages_from_action_line(line: String) -> HashMap<String, HashSet<String>> {
     }
 
     // Line does not end with a comma.
-    add_parsed_package(&mut packages, package);
+    packages = add_parsed_package(&packages, package);
     return packages;
 }
 
@@ -263,7 +266,7 @@ fn show_transaction(entry: &HistoryEntry) {
         duration.num_seconds()
     );
 
-    let mut header_table = tabular::Table::new("{:<}: {:<}");
+    let mut header_table = tabular::Table::new("{:<} : {:<}");
     header_table.add_row(
         tabular::Row::new()
             .with_cell("Transaction ID")
