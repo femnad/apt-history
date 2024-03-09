@@ -198,9 +198,12 @@ fn entries_from_file(filename: &str, index_start: u32) -> Vec<HistoryEntry> {
         }
     }
 
-    // Last line is not empty.
-    finalize_entry(&mut entry, index, &package_map);
-    entries.push(entry);
+    // Check if this was an empty log file
+    if !entry.command_line.is_empty() {
+        // Last line is not empty.
+        finalize_entry(&mut entry, index, &package_map);
+        entries.push(entry);
+    }
     entries
 }
 
@@ -250,6 +253,9 @@ fn history_entries() -> Vec<HistoryEntry> {
     let mut id: u32 = 1;
     for file in history_files {
         let entries = entries_from_file(file.to_str().expect("error getting file path"), id);
+        if entries.len() == 0 {
+            continue;
+        }
         let num_entries = entries.len() as u32;
         combined.extend(entries);
         id += num_entries;
