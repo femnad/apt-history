@@ -351,15 +351,20 @@ fn matching_entries(query: Option<Vec<String>>) -> Vec<HistoryEntry> {
     let max_id = entries.len() as u32;
     let fallback_transaction: String = max_id.to_string();
 
-    let transactions = query
+    let transactions = query.clone()
         .or(Some(vec![fallback_transaction]))
         .expect("error getting ID of history entry");
 
     let mut ids: HashSet<u32> = HashSet::new();
     let mut packages: HashSet<String> = HashSet::new();
     for transaction in transactions {
-        match transaction.parse::<u32>() {
-            Ok(id) => ids.insert(id),
+        match transaction.parse::<i32>() {
+            Ok(mut tid) => {
+                if tid <= 0 {
+                    tid = (max_id as i32) + tid;
+                }
+                ids.insert(tid as u32)
+            },
             Err(_) => packages.insert(transaction),
         };
     }

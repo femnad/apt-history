@@ -11,6 +11,7 @@ struct Args {
     #[arg(default_value = "list")]
     command: String,
 
+    #[arg(allow_hyphen_values = true)]
     transaction: Option<Vec<String>>,
 }
 
